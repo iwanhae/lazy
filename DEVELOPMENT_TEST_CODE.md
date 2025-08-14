@@ -72,7 +72,7 @@ This document explains how we approach testing for the `lazy` package. It is int
 
 ## Running Tests
 
-- `go test ./...`
+`make test`
 
 ## Future Enhancements
 
