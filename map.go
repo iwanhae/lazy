@@ -1,6 +1,8 @@
 package lazy
 
-func Map[IN any, OUT any](obj object[IN], mapper func(v IN) (OUT, error), opts ...optionFunc) object[OUT] {
+import "context"
+
+func Map[IN any, OUT any](ctx context.Context, obj object[IN], mapper func(v IN) (OUT, error), opts ...optionFunc) object[OUT] {
 	opt := buildOpts(opts)
 	ch := make(chan OUT, opt.size)
 
@@ -8,13 +10,18 @@ func Map[IN any, OUT any](obj object[IN], mapper func(v IN) (OUT, error), opts .
 		defer recover()
 		defer close(ch)
 		for v := range obj.ch {
-			result, err := mapper(v)
-			if err != nil {
-				if decision := opt.onError(err); decision == OnErrorDecisionStop {
-					return
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				result, err := mapper(v)
+				if err != nil {
+					if decision := opt.onError(err); decision == DecisionStop {
+						return
+					}
+				} else {
+					ch <- result
 				}
-			} else {
-				ch <- result
 			}
 		}
 	}()

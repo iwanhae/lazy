@@ -24,18 +24,18 @@ func WithSize(size int) optionFunc {
 	}
 }
 
-type OnErrorDecision string
+type Decision string
 
 const (
-	OnErrorDecisionStop   = "stop"
-	OnErrorDecisionIgnore = "ignore"
+	DecisionStop   = "stop"
+	DecisionIgnore = "ignore"
 )
 
-type errHandlerFunc func(err error) OnErrorDecision
+type errHandlerFunc func(err error) Decision
 
 var (
-	IgnoreErrorHandler errHandlerFunc = func(err error) OnErrorDecision {
-		return OnErrorDecisionIgnore
+	IgnoreErrorHandler errHandlerFunc = func(err error) Decision {
+		return DecisionIgnore
 	}
 )
 
