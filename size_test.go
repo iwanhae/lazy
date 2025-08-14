@@ -29,3 +29,20 @@ func TestWithSize_MapBuffer(t *testing.T) {
 		t.Fatalf("expected Map buffer=4, got %d", cap(out.ch))
 	}
 }
+
+func TestWithSize_NewBuffer(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Use a user channel and wrap it; output buffer should honor WithSize.
+	userCh := make(chan int)
+	wrapped := New[int](ctx, userCh, WithSize(5))
+
+	if cap(wrapped.ch) != 5 {
+		t.Fatalf("expected New buffer=5, got %d", cap(wrapped.ch))
+	}
+
+	// Clean up goroutine: close input channel so the wrapper goroutine exits.
+	close(userCh)
+}

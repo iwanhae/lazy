@@ -67,6 +67,14 @@ Current operators:
   - Errors: none
   - Buffering: `WithSize`
 
+- New
+  - Input: `in <-chan T` (user channel)
+  - Output: `object[T]` forwarding from `in`
+  - Order: preserved; forwards sequentially
+  - Cancellation: stops forwarding when `ctx.Done()`
+  - Errors: none
+  - Buffering: `WithSize` on the forwarded output
+
 - Map
   - Input: `object[IN]`, `mapper(IN) (OUT, error)`
   - Output: `object[OUT]`
@@ -121,6 +129,7 @@ func Op[IN any, OUT any](ctx context.Context, in object[IN], f func(IN) (OUT, er
 | Operator  | Error Source      | DecisionStop            | DecisionIgnore           |
 |-----------|-------------------|-------------------------|--------------------------|
 | NewSlice  | N/A               | N/A                     | N/A                      |
+| New       | N/A               | N/A                     | N/A                      |
 | Map       | mapper error      | stop pipeline, close ch | drop value, continue     |
 | Filter    | predicate error   | stop pipeline, close ch | drop value, continue     |
 
@@ -178,3 +187,45 @@ func Op[IN any, OUT any](ctx context.Context, in object[IN], f func(IN) (OUT, er
 - Generics: short, meaningful (`IN`, `OUT`, `T`).
 - Options: `WithX` pattern; decisions: `DecisionStop`, `DecisionIgnore`.
 - Exported APIs include a concise doc comment with the contract above.
+
+---
+
+## Contributor Quick Guide
+
+### Where To Look
+- Source operators: `new.go` (e.g., `NewSlice`, `New`)
+- Transform operators: `map.go`, `filter.go`
+- Sink: `consume.go`
+- Options/policies: `with.go` (`WithSize`, `WithErrHandler`, defaults)
+- Examples/verification: `examples/{case}` and `Makefile` (`test-examples`)
+
+### Quick Change Recipes
+- Source add (New-family): edit `new.go` → add tests (`*_test.go` black-box + `size_test.go` white-box) → add example under `examples/{case}` with `OUTPUT` → update `AGENTS.md` contracts/matrix.
+- Transform add (Map/Filter-family): implement operator file → honor error policy (Stop/Ignore) and cancellation → add test matrix (happy/error/cancel/buffer/empty) → update example + docs.
+- Sink change/add (Consume-family): confirm consumer error propagation → add happy/error tests → verify example output.
+
+### Contracts Cheat Sheet
+- Cancellation: guard every send with `select { case <-ctx.Done(): return; case out <- v: }`.
+- Channel ownership: each operator solely owns and closes its output (`defer close(out)`).
+- Ordering: preserve input order; no fan-out/fan-in unless documented.
+- Error default: absent `WithErrHandler`, behave as `DecisionIgnore`.
+- Buffer default: absent `WithSize`, buffer size is `0`.
+- Source errors: none (N/A in the error policy matrix).
+
+### Testing Checklist
+- Leak check: `defer goleak.VerifyNone(t)`.
+- Happy path: values and order.
+- Error policy: Ignore (drop) vs Stop (halt) branches.
+- Cancellation: stop mid-stream; goroutines exit.
+- Buffering: white-box `cap(out.ch)` where relevant.
+- Empty input: zero outputs, no leaks.
+
+### Examples Rules
+- Structure: `main.go` + `OUTPUT` per case.
+- Verification: `make test-examples` must diff-equal; avoid extra whitespace/newlines.
+- Deterministic: avoid time/rand-driven output.
+
+### PR/Commit Gate
+- Formatting and vet: `gofmt`, `go vet` clean.
+- Offline-friendly: `make test` (vendor enforced) passes.
+- Docs: update `AGENTS.md` (contracts, matrix, checklists) for user-visible changes.
