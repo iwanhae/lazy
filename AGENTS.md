@@ -144,15 +144,15 @@ func Op[IN any, OUT any](ctx context.Context, in object[IN], f func(IN) (OUT, er
 - fmt: run `gofmt -s -w .`
 - vet: run `go vet ./...`
 - test-examples: run all examples and diff against `OUTPUT`
-- test: tidy → fmt → vet → test-examples → `go test -v -cover ./...`
+- test: format → vet → examples check → `go test -v -cover ./...` (offline by default via vendoring)
+- vendor: populate `./vendor` from `go.mod`/`go.sum`
+- tidy-vendor: `go mod tidy` then refresh `./vendor`
 
 ## Running in Restricted Environments
 
-- Set absolute caches to avoid sandbox issues:
-  - `GOCACHE=$(pwd)/.gocache`
-  - `GOMODCACHE=$(pwd)/.gocache-mod`
-  - `GOTOOLCACHE=$(pwd)/.gocache-tools`
-- Ensure `go mod tidy` runs before tests to vendor deps in cache.
+- Default is offline-friendly: the Makefile exports local caches and forces vendoring (`GOFLAGS=-mod=vendor`).
+- Just run `make test`; no environment variables are required.
+- When changing dependencies, run `make tidy-vendor` once (requires network) and commit updated `go.mod`, `go.sum`, and `vendor/`.
 
 ## PR Checklist
 
@@ -160,6 +160,7 @@ func Op[IN any, OUT any](ctx context.Context, in object[IN], f func(IN) (OUT, er
 - Unit tests updated/added; goleak checks present and pass.
 - Examples updated and `OUTPUT` verified via `make test-examples`.
 - Docs updated (AGENTS.md and example descriptions) if behavior changed.
+- If dependencies changed, run `make tidy-vendor` and commit `vendor/`.
 - For new operators (Map/Filter-level), ensure AGENTS.md sections are updated (contracts, error matrix, checklist, examples).
 - Coverage roughly maintained; call out intentional gaps.
 

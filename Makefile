@@ -3,12 +3,20 @@ PKG := ./...
 CASE ?= simple
 EXAMPLE := examples/$(CASE)/main.go
 
-.PHONY: all test race cover vet fmt example tidy test-examples
+# Use local caches and vendor by default so `make test` works offline
+export GOCACHE := $(CURDIR)/.gocache
+export GOMODCACHE := $(CURDIR)/.gocache-mod
+export GOTOOLCACHE := $(CURDIR)/.gocache-tools
+# Force go commands to use the vendor directory
+export GOFLAGS := -mod=vendor
+
+.PHONY: all test race cover vet fmt example tidy vendor tidy-vendor test-examples
 
 all: test
 
-# One-stop command: tidy, format, and run tests with race and coverage
-test: tidy fmt vet test-examples
+# One-stop command: format, vet, run examples check, then tests.
+# Note: "tidy" is not part of default test to allow offline runs.
+test: fmt vet test-examples
 	@go clean -testcache
 	go test -v -cover $(PKG)
 
@@ -20,6 +28,13 @@ fmt:
 
 tidy:
 	go mod tidy
+
+# Ensure vendor directory is populated from go.mod/go.sum
+vendor:
+	go mod vendor
+
+# Convenience: tidy go.mod and refresh vendor at once
+tidy-vendor: tidy vendor
 
 example:
 	go run $(EXAMPLE)
