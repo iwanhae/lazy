@@ -1,9 +1,27 @@
 # Repository Guidelines
 
+This document is designed to be evergreen. It focuses on invariant policies,
+checklists, and small reusable templates rather than enumerating current files
+or APIs that frequently change. The code and tests are the source of truth for
+implementation details; AGENTS.md describes contracts each change must honor.
+
+## Source of Truth & Drift Policy
+- Code comments on exported APIs + tests are the primary specification.
+- AGENTS.md captures stable invariants (ordering, cancellation, error policy),
+  category-level contracts (Source/Transform/Sink), and contributor checklists.
+- Prefer patterns over lists: avoid enumerating files, operators, or example
+  cases here. The repo layout and discovery rules make those discoverable.
+- Update AGENTS.md only when invariants, policies, or contributor workflows
+  change. Adding a new operator that follows the same contracts does not
+  require editing this file beyond adding doc comments and tests in code.
+
 ## Project Structure & Module Organization
-- Root Go package `lazy`: `new.go`, `map.go`, `filter.go`, `with.go`, `consume.go`.
-- Tests in root as `*_test.go` (both `lazy_test` black-box and a small white-box test in `package lazy`).
-- Examples by case: `examples/{case}/main.go` (default `simple/`). Demonstrates `NewSlice → Filter → Map → Consume`. Available cases: `simple`, `errors`, `cancellation`.
+- Root Go package `lazy`. Operators live as focused files in the root (e.g.,
+  `new.go`, `map.go`, `filter.go`, `with.go`, `consume.go`). Names may evolve,
+  but each operator is in a single, small file.
+- Tests live in root as `*_test.go` with a majority in `package lazy_test` and
+  minimal white-box tests in `package lazy` only when necessary (e.g., buffers).
+- Examples live under `examples/{case}` with `main.go` and `OUTPUT`.
 - Module: `github.com/iwanhae/lazy` (see `go.mod`). Target Go 1.24.
 
 ## Example Outputs
@@ -13,8 +31,10 @@
 ## Contribution Workflow
 - Implement changes in small, focused commits.
 - Always add or update tests for your changes, then run `make test` locally and ensure it passes before pushing.
-- Add or update `examples/{case}/main.go` (e.g., `examples/simple/main.go`) when user-visible behavior changes.
-- When adding a new operator (Map/Filter-level change), update AGENTS.md: Operator API Contracts, Error Policy Matrix, New Operator Checklist, and Examples guidance.
+- Add or update `examples/{case}/main.go` and `OUTPUT` when user-visible behavior changes.
+- When adding a new operator, ensure: operator doc comment (use template below),
+  tests updated per matrix, and examples if behavior is user-visible. Update
+  AGENTS.md only if you change invariants or contributor workflows.
 
 ## Documentation Expectations
 - Briefly document user-visible behavior with operator comments and a minimal example.
@@ -48,48 +68,40 @@
 
 ## Operator API Contracts (Quick Reference)
 
-Each operator should document these properties succinctly:
+Each exported operator must include a concise doc comment using this template.
 
-- Input: upstream `object[T]` and user function signature
-- Output: downstream `object[U]` (or `object[T]` for Filter)
-- Order: preserves input order for emitted values
-- Cancellation: must respect `ctx.Done()` before send
-- Errors: handled by `WithErrHandler` → `DecisionStop|DecisionIgnore`
-- Buffering: output channel size via `WithSize`
+Operator doc comment template:
 
-Current operators:
+```
+// <Name> <short description>
+//
+// Input: <upstream object and user func signature>
+// Output: <downstream object type>
+// Order: preserves input order for emitted values
+// Cancellation: guards sends with select on ctx.Done()
+// Errors: handled via WithErrHandler → DecisionStop | DecisionIgnore
+// Buffering: output channel capacity via WithSize
+```
 
-- NewSlice
-  - Input: `slice []T`
+Operator categories and contracts:
+- Source (e.g., from slice or user channel)
+  - Input: user-owned data (`[]T` or `<-chan T`)
   - Output: `object[T]`
-  - Order: preserved; emits sequentially
-  - Cancellation: stops emission when `ctx.Done()`
+  - Order: preserved
+  - Cancellation: stops emission/forwarding when `ctx.Done()`
   - Errors: none
   - Buffering: `WithSize`
-
-- New
-  - Input: `in <-chan T` (user channel)
-  - Output: `object[T]` forwarding from `in`
-  - Order: preserved; forwards sequentially
-  - Cancellation: stops forwarding when `ctx.Done()`
-  - Errors: none
-  - Buffering: `WithSize` on the forwarded output
-
-- Map
-  - Input: `object[IN]`, `mapper(IN) (OUT, error)`
-  - Output: `object[OUT]`
-  - Order: preserved for successful results
-  - Cancellation: select on `ctx.Done()` before send
-  - Errors: handler decides stop vs. drop
-  - Buffering: `WithSize`
-
-- Filter
-  - Input: `object[T]`, `predicate(T) (bool, error)`
-  - Output: `object[T]` (passes through accepted values)
+- Transform (e.g., Map/Filter-family)
+  - Input: `object[IN]` and user function
+  - Output: `object[OUT]` (or `object[T]` for Filter)
   - Order: preserved for emitted values
-  - Cancellation: select on `ctx.Done()` before send
-  - Errors: handler decides stop vs. drop
+  - Cancellation: guard sends with `select { case <-ctx.Done(): return; case out <- v: }`
+  - Errors: `WithErrHandler` decides Stop (halt pipeline) vs Ignore (drop value)
   - Buffering: `WithSize`
+- Sink (e.g., Consume)
+  - Input: `object[T]` and consumer func
+  - Behavior: drain values; return first consumer error
+  - Cancellation: N/A (respects upstream closure)
 
 ## New Operator Checklist
 
@@ -102,7 +114,7 @@ Current operators:
 - Before sending: `select { case <-ctx.Done(): return; case ch <- out: }`.
 - Do not leak goroutines on cancellation or stop.
 
-Minimal skeleton:
+Minimal skeleton (transform):
 
 ```go
 func Op[IN any, OUT any](ctx context.Context, in object[IN], f func(IN) (OUT, error), opts ...optionFunc) object[OUT] {
@@ -124,14 +136,13 @@ func Op[IN any, OUT any](ctx context.Context, in object[IN], f func(IN) (OUT, er
 }
 ```
 
-## Error Handling Policy Matrix
+## Error Handling Policy
 
-| Operator  | Error Source      | DecisionStop            | DecisionIgnore           |
-|-----------|-------------------|-------------------------|--------------------------|
-| NewSlice  | N/A               | N/A                     | N/A                      |
-| New       | N/A               | N/A                     | N/A                      |
-| Map       | mapper error      | stop pipeline, close ch | drop value, continue     |
-| Filter    | predicate error   | stop pipeline, close ch | drop value, continue     |
+- Source operators do not produce user-function errors.
+- Transform operators handle user-function errors via `WithErrHandler`:
+  - DecisionStop: stop the pipeline and close the output channel.
+  - DecisionIgnore: drop the failing value and continue.
+- Sink operators must propagate consumer errors immediately (no wrapping unless intentional).
 
 ## Concurrency Invariants
 
@@ -143,9 +154,9 @@ func Op[IN any, OUT any](ctx context.Context, in object[IN], f func(IN) (OUT, er
 
 ## Examples: Rules of Thumb
 
-- Add a new example when behavior is user-visible or educational (errors, cancellation, new operator).
+- Add a new example when behavior is user-visible or educational (errors, cancellation, new operator, or new source patterns).
 - Each example must include `main.go` and an `OUTPUT` with expected stdout.
-- Use `make test-examples` to verify outputs via `diff`.
+- Do not enumerate cases here; `make test-examples` discovers all `examples/*` with both files present.
 - Keep outputs small and deterministic; avoid time-based flakiness.
 
 ## Make Targets Guide
@@ -170,7 +181,7 @@ func Op[IN any, OUT any](ctx context.Context, in object[IN], f func(IN) (OUT, er
 - Examples updated and `OUTPUT` verified via `make test-examples`.
 - Docs updated (AGENTS.md and example descriptions) if behavior changed.
 - If dependencies changed, run `make tidy-vendor` and commit `vendor/`.
-- For new operators (Map/Filter-level), ensure AGENTS.md sections are updated (contracts, error matrix, checklist, examples).
+- For new operators, ensure operator doc comments and tests are added; update AGENTS.md only if policies or checklists change.
 - Coverage roughly maintained; call out intentional gaps.
 
 ## Testing Matrix (per operator)
@@ -186,7 +197,13 @@ func Op[IN any, OUT any](ctx context.Context, in object[IN], f func(IN) (OUT, er
 
 - Generics: short, meaningful (`IN`, `OUT`, `T`).
 - Options: `WithX` pattern; decisions: `DecisionStop`, `DecisionIgnore`.
-- Exported APIs include a concise doc comment with the contract above.
+- Exported APIs include a concise doc comment using the template under Operator API Contracts.
+
+## Drift Minimization Tips
+- Avoid listing current operators or example names in docs. Let discovery rules and code comments speak for specifics.
+- Place the full operator contract in code comments near the implementation.
+- Prefer category-level guidance here (Source/Transform/Sink) and enforce via tests.
+- If an operator deviates from standard contracts, call it out explicitly in its code comment and add targeted tests.
 
 ---
 

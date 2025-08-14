@@ -4,9 +4,12 @@ import "context"
 
 // Filter passes through only values for which predicate returns true.
 //
-// Errors from predicate are handled via WithErrHandler. If the handler returns
-// DecisionStop, the pipeline stops; if DecisionIgnore, the value is dropped and
-// processing continues.
+// Input: object[T], predicate(T) (bool, error)
+// Output: object[T] (accepted values pass through)
+// Order: preserves input order for emitted values
+// Cancellation: guards sends with select on ctx.Done()
+// Errors: handled via WithErrHandler → DecisionStop | DecisionIgnore
+// Buffering: output channel capacity via WithSize
 func Filter[T any](ctx context.Context, obj object[T], predicate func(v T) (bool, error), opts ...optionFunc) object[T] {
 	opt := buildOpts(opts)
 	ch := make(chan T, opt.size)

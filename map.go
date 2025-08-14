@@ -2,6 +2,14 @@ package lazy
 
 import "context"
 
+// Map transforms each input value using mapper and emits results.
+//
+// Input: object[IN], mapper(IN) (OUT, error)
+// Output: object[OUT]
+// Order: preserves input order for emitted values
+// Cancellation: guards sends with select on ctx.Done()
+// Errors: handled via WithErrHandler → DecisionStop | DecisionIgnore
+// Buffering: output channel capacity via WithSize
 func Map[IN any, OUT any](ctx context.Context, obj object[IN], mapper func(v IN) (OUT, error), opts ...optionFunc) object[OUT] {
 	opt := buildOpts(opts)
 	ch := make(chan OUT, opt.size)
