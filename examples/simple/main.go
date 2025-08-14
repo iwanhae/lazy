@@ -15,10 +15,11 @@ func main() {
 
 	nums := lazy.NewSlice(ctx, a)
 
-	doubled := lazy.Map(ctx, nums, func(v int) (int, error) {
-		if v > 5 {
-			return 0, fmt.Errorf("v is greater than 5")
-		}
+	// Filter values to keep only <= 5, then map to double.
+	filtered := lazy.Filter(ctx, nums, func(v int) (bool, error) {
+		return v <= 5, nil
+	})
+	doubled := lazy.Map(ctx, filtered, func(v int) (int, error) {
 		return v * 2, nil
 	})
 

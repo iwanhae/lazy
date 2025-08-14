@@ -27,8 +27,9 @@ func main() {
 		_ = lazy.Consume(id, func(v int) error {
 			consumed++
 			if consumed == 5 {
-				// Cancel after consuming a few items
+				// Cancel after consuming a few items and stop consuming further
 				cancel()
+				return fmt.Errorf("stop")
 			}
 			return nil
 		})
