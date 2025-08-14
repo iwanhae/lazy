@@ -10,18 +10,19 @@ func Map[IN any, OUT any](ctx context.Context, obj object[IN], mapper func(v IN)
 		defer recover()
 		defer close(ch)
 		for v := range obj.ch {
+			result, err := mapper(v)
+			if err != nil {
+				if decision := opt.onError(err); decision == DecisionStop {
+					return
+				}
+				// DecisionIgnore: drop value and continue
+				continue
+			}
+			// Respect cancellation when forwarding results to the next stage
 			select {
 			case <-ctx.Done():
 				return
-			default:
-				result, err := mapper(v)
-				if err != nil {
-					if decision := opt.onError(err); decision == DecisionStop {
-						return
-					}
-				} else {
-					ch <- result
-				}
+			case ch <- result:
 			}
 		}
 	}()

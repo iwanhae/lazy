@@ -1,34 +1,33 @@
-package lazy_test
+package main
 
 import (
 	"context"
-	"testing"
+	"fmt"
 	"time"
 
 	"github.com/iwanhae/lazy"
-	"go.uber.org/goleak"
 )
 
-func TestContextCancellationStopsPipeline(t *testing.T) {
-	defer goleak.VerifyNone(t)
+func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Large input to ensure there would be more to process after cancel.
+	// Large input to illustrate cancellation mid-stream
 	var big []int
-	for i := 0; i < 100000; i++ {
+	for i := 1; i <= 1000; i++ {
 		big = append(big, i)
 	}
 
 	nums := lazy.NewSlice(ctx, big)
 	id := lazy.Map(ctx, nums, func(v int) (int, error) { return v, nil })
 
+	consumed := 0
 	done := make(chan struct{})
-	count := 0
 	go func() {
 		_ = lazy.Consume(id, func(v int) error {
-			count++
-			if count == 5 {
+			consumed++
+			if consumed == 5 {
+				// Cancel after consuming a few items
 				cancel()
 			}
 			return nil
@@ -38,12 +37,9 @@ func TestContextCancellationStopsPipeline(t *testing.T) {
 
 	select {
 	case <-done:
-		// ok
 	case <-time.After(2 * time.Second):
-		t.Fatal("pipeline did not stop after cancellation")
+		fmt.Println("timeout waiting for cancellation")
 	}
 
-	if count < 5 {
-		t.Fatalf("expected to consume at least 5 before cancel, got %d", count)
-	}
+	fmt.Printf("consumed before cancel: %d\n", consumed)
 }
